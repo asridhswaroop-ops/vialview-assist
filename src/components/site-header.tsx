@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { ScanLine, Package, Search, Stethoscope, LogOut } from "lucide-react";
+import { LayoutDashboard, ScanLine, Package, Search, Stethoscope, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { actions, useAppState } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const NAV = [
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/scan", label: "Scanner", icon: ScanLine },
   { to: "/cabinet", label: "Cabinet", icon: Package },
   { to: "/search", label: "Search", icon: Search },
