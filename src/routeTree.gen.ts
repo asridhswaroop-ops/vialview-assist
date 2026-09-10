@@ -13,6 +13,8 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as CabinetRouteImport } from './routes/cabinet'
 import { Route as ScanRouteImport } from './routes/scan'
 import { Route as SearchRouteImport } from './routes/search'
+import { Route as AnalysisIdRouteImport } from './routes/analysis.$id'
+import { Route as MedicineIdRouteImport } from './routes/medicine.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +36,32 @@ const SearchRoute = SearchRouteImport.update({
   path: '/search',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AnalysisIdRoute = AnalysisIdRouteImport.update({
+  id: '/analysis/$id',
+  path: '/analysis/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MedicineIdRoute = MedicineIdRouteImport.update({
+  id: '/medicine/$id',
+  path: '/medicine/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/cabinet': typeof CabinetRoute
   '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
+  '/analysis/$id': typeof AnalysisIdRoute
+  '/medicine/$id': typeof MedicineIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/cabinet': typeof CabinetRoute
   '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
+  '/analysis/$id': typeof AnalysisIdRoute
+  '/medicine/$id': typeof MedicineIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +69,23 @@ export interface FileRoutesById {
   '/cabinet': typeof CabinetRoute
   '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
+  '/analysis/$id': typeof AnalysisIdRoute
+  '/medicine/$id': typeof MedicineIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/cabinet' | '/scan' | '/search'
+  fullPaths:
+    '/' | '/cabinet' | '/scan' | '/search' | '/analysis/$id' | '/medicine/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/cabinet' | '/scan' | '/search'
-  id: '__root__' | '/' | '/cabinet' | '/scan' | '/search'
+  to: '/' | '/cabinet' | '/scan' | '/search' | '/analysis/$id' | '/medicine/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/cabinet'
+    | '/scan'
+    | '/search'
+    | '/analysis/$id'
+    | '/medicine/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +93,8 @@ export interface RootRouteChildren {
   CabinetRoute: typeof CabinetRoute
   ScanRoute: typeof ScanRoute
   SearchRoute: typeof SearchRoute
+  AnalysisIdRoute: typeof AnalysisIdRoute
+  MedicineIdRoute: typeof MedicineIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +127,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SearchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/analysis/$id': {
+      id: '/analysis/$id'
+      path: '/analysis/$id'
+      fullPath: '/analysis/$id'
+      preLoaderRoute: typeof AnalysisIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/medicine/$id': {
+      id: '/medicine/$id'
+      path: '/medicine/$id'
+      fullPath: '/medicine/$id'
+      preLoaderRoute: typeof MedicineIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +149,8 @@ const rootRouteChildren: RootRouteChildren = {
   CabinetRoute: CabinetRoute,
   ScanRoute: ScanRoute,
   SearchRoute: SearchRoute,
+  AnalysisIdRoute: AnalysisIdRoute,
+  MedicineIdRoute: MedicineIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
