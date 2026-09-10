@@ -14,7 +14,7 @@ export function matchMedicine(seed: string): { medicine: Medicine; confidence: n
   for (let i = 0; i < seed.length; i++) {
     hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   }
-  const medicine = MEDICINES[hash % MEDICINES.length];
+  const medicine = MEDICINES[hash % MEDICINES.length]!;
   const confidence = 82 + (hash % 16); // 82–97
   return { medicine, confidence };
 }
