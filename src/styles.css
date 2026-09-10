@@ -41,6 +41,10 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
@@ -63,20 +67,24 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.129 0.042 264.695);
+  --background: oklch(0.99 0.007 190);
+  --foreground: oklch(0.22 0.03 220);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.129 0.042 264.695);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
-  --secondary: oklch(0.968 0.007 247.896);
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
+  --primary: oklch(0.58 0.096 189);
+  --primary-foreground: oklch(0.99 0.005 180);
+  --secondary: oklch(0.96 0.018 190);
+  --secondary-foreground: oklch(0.32 0.055 195);
+  --muted: oklch(0.965 0.012 195);
+  --muted-foreground: oklch(0.52 0.028 210);
+  --accent: oklch(0.93 0.045 188);
+  --accent-foreground: oklch(0.3 0.06 195);
+  --success: oklch(0.62 0.13 155);
+  --success-foreground: oklch(0.99 0.005 180);
+  --warning: oklch(0.76 0.15 72);
+  --warning-foreground: oklch(0.25 0.05 60);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.984 0.003 247.858);
   --border: oklch(0.929 0.013 255.508);
@@ -98,6 +106,10 @@
 }
 
 .dark {
+  --success: oklch(0.68 0.13 155);
+  --success-foreground: oklch(0.16 0.03 200);
+  --warning: oklch(0.8 0.15 72);
+  --warning-foreground: oklch(0.2 0.04 60);
   --background: oklch(0.129 0.042 264.695);
   --foreground: oklch(0.984 0.003 247.858);
   --card: oklch(0.208 0.042 265.755);
