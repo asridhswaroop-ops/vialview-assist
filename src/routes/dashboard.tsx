@@ -195,7 +195,7 @@ function DashboardPage() {
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="truncate font-medium">
-                            {med?.brandName ?? "Unknown medicine"}
+                            {med?.brandName ?? scan.extraction?.medicineName ?? "Unrecognised medicine"}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {new Date(scan.scannedAt).toLocaleString()} · {scan.confidence}%
