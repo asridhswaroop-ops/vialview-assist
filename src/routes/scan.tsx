@@ -1,10 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
-import { Camera, ImageUp, Loader2, Upload, X } from "lucide-react";
+import { AlertTriangle, Camera, ImageUp, Loader2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { ANALYSIS_STAGES, matchMedicine, validateImage } from "@/lib/analysis";
+import { ANALYSIS_STAGES, validateImage } from "@/lib/analysis";
+import { analyzeMedicineImage } from "@/lib/analyze.functions";
 import { actions } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -27,12 +29,15 @@ export const Route = createFileRoute("/scan")({
   component: ScanPage,
 });
 
+const TOTAL_MS = ANALYSIS_STAGES.reduce((sum, s) => sum + s.ms, 0);
+const TIMEOUT_MS = 60_000;
+
 function ScanPage() {
   const navigate = useNavigate();
+  const analyze = useServerFn(analyzeMedicineImage);
   const inputRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [fileSeed, setFileSeed] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [stage, setStage] = useState(-1);
@@ -46,61 +51,79 @@ function ScanPage() {
     if (validationError) {
       setError(validationError);
       setPreview(null);
-      setFileSeed(null);
       return;
     }
     setError(null);
-    setFileSeed(`${file.name}-${file.size}`);
     const reader = new FileReader();
+    reader.onerror = () => setError("That image could not be read. Please try another photo.");
     reader.onload = () => setPreview(typeof reader.result === "string" ? reader.result : null);
     reader.readAsDataURL(file);
   }
 
+  // Stage animation only — the result comes from the real analysis call.
   useEffect(() => {
-    if (!running || !fileSeed) return;
-    let cancelled = false;
-    const timers: ReturnType<typeof setTimeout>[] = [];
+    if (!running) return;
     let acc = 0;
-
-    ANALYSIS_STAGES.forEach((s, index) => {
+    const timers = ANALYSIS_STAGES.slice(0, -1).map((s, index) => {
       acc += s.ms;
-      timers.push(
-        setTimeout(() => {
-          if (cancelled) return;
-          if (index < ANALYSIS_STAGES.length - 1) {
-            setStage(index + 1);
-          } else {
-            const { medicine, confidence } = matchMedicine(fileSeed);
-            const id = `scan-${Date.now().toString(36)}`;
-            actions.addScan({
-              id,
-              medicineId: medicine.id,
-              imageDataUrl: preview,
-              confidence,
-              scannedAt: new Date().toISOString(),
-            });
-            navigate({ to: "/analysis/$id", params: { id } });
-          }
-        }, acc),
-      );
+      return setTimeout(() => setStage((current) => Math.max(current, index + 1)), acc);
     });
-
     const tick = setInterval(() => setElapsed((e) => e + 0.1), 100);
     return () => {
-      cancelled = true;
       timers.forEach(clearTimeout);
       clearInterval(tick);
     };
-  }, [running, fileSeed, preview, navigate]);
+  }, [running]);
 
-  function start() {
+  async function start() {
+    if (!preview) return;
     setElapsed(0);
+    setError(null);
     setStage(0);
+    const startedAt = Date.now();
+
+    let result: Awaited<ReturnType<typeof analyze>>;
+    try {
+      result = await Promise.race([
+        analyze({ data: { imageDataUrl: preview } }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), TIMEOUT_MS),
+        ),
+      ]);
+    } catch (err) {
+      setStage(-1);
+      setError(
+        err instanceof Error && err.message === "timeout"
+          ? "The analysis took too long. Please check your connection and try again."
+          : "We couldn't analyse this image right now. Please try again.",
+      );
+      return;
+    }
+
+    if (!result.ok) {
+      setStage(-1);
+      setError(result.message);
+      return;
+    }
+
+    const remaining = Math.max(0, TOTAL_MS - (Date.now() - startedAt));
+    await new Promise((resolve) => setTimeout(resolve, remaining));
+    setStage(ANALYSIS_STAGES.length - 1);
+
+    const id = `scan-${Date.now().toString(36)}`;
+    actions.addScan({
+      id,
+      medicineId: result.medicineId,
+      extraction: result.extraction,
+      imageDataUrl: preview,
+      confidence: Math.round(result.extraction.confidence),
+      scannedAt: new Date().toISOString(),
+    });
+    navigate({ to: "/analysis/$id", params: { id } });
   }
 
   function reset() {
     setPreview(null);
-    setFileSeed(null);
     setError(null);
     setStage(-1);
     setElapsed(0);
@@ -112,7 +135,8 @@ function ScanPage() {
     <div className="mx-auto w-full max-w-3xl px-4 py-10">
       <h1 className="text-3xl font-semibold tracking-tight">Medicine scanner</h1>
       <p className="mt-2 text-muted-foreground">
-        Upload a clear photo of the medicine pack. JPG, PNG or WebP up to 8 MB.
+        Upload a clear photo of the medicine pack. JPG, PNG or WebP up to 8 MB. Details are read
+        from your photo; medical information comes only from our verified medicine list.
       </p>
 
       {!running && (
@@ -168,12 +192,16 @@ function ScanPage() {
               <Button variant="outline" onClick={() => cameraRef.current?.click()}>
                 <Camera className="size-4" /> Take photo
               </Button>
-              <Button disabled={!preview} onClick={start}>
-                Analyse medicine
+              <Button disabled={!preview} onClick={() => void start()}>
+                {error && preview ? "Try again" : "Analyse medicine"}
               </Button>
             </div>
 
-            {error && <p className="text-sm font-medium text-destructive">{error}</p>}
+            {error && (
+              <p className="flex items-center gap-2 text-sm font-medium text-destructive">
+                <AlertTriangle className="size-4" /> {error}
+              </p>
+            )}
 
             <input
               ref={inputRef}
