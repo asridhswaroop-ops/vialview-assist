@@ -2,9 +2,14 @@ import { useSyncExternalStore } from "react";
 
 export type Language = "en" | "te";
 
+import type { Extraction } from "@/lib/medicine-analysis";
+
 export type ScanRecord = {
   id: string;
-  medicineId: string;
+  /** Verified catalogue id, or null when the reading matched nothing trusted. */
+  medicineId: string | null;
+  /** What the vision model actually read off the packaging. */
+  extraction?: Extraction;
   imageDataUrl: string | null;
   confidence: number;
   scannedAt: string;

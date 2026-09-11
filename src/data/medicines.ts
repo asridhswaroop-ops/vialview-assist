@@ -133,7 +133,8 @@ export const MEDICINES: Medicine[] = [
   },
 ];
 
-export function findMedicineById(id: string) {
+export function findMedicineById(id: string | null | undefined) {
+  if (!id) return undefined;
   return MEDICINES.find((m) => m.id === id);
 }
 
