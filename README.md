@@ -24,6 +24,16 @@ Continue developing this project in the [Lovable editor](https://lovable.dev/pro
 
 Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
 
+### Real vision configuration
+
+The scanner uses the existing server-only Lovable AI Gateway integration in `src/lib/vision.server.ts`. Copy `.env.example` to `.env.local` and set the required `LOVABLE_API_KEY` there:
+
+```sh
+LOVABLE_API_KEY=your-server-side-lovable-key
+```
+
+For deployment, configure `LOVABLE_API_KEY` as a server/runtime secret in the hosting provider. Do not use a `VITE_` variable, put the key in React code, or commit the real value. Without this variable, the scanner returns “AI analysis is not configured on this server.”
+
 ```sh
 git clone <this-repository-url>
 cd <repository-name>

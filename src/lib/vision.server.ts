@@ -103,6 +103,12 @@ export async function readMedicineImage(dataUrl: string): Promise<unknown> {
         message: "AI analysis is temporarily unavailable for this workspace.",
       });
     }
+    if (response.status === 401) {
+      throw new VisionError({
+        kind: "config",
+        message: "The AI analysis key is invalid. Please check the server configuration.",
+      });
+    }
     console.error("Vision gateway error", response.status, detail.slice(0, 500));
     throw new VisionError({ kind: "upstream", message: "The analysis service could not read the image." });
   }
