@@ -1,43 +1,22 @@
 /**
- * Server-only Lovable AI Gateway vision call.
+ * Server-only Gemini vision call.
  * Never imported by client code — the API key stays on the server.
  */
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/responses";
-const MODEL = "openai/gpt-6-astra";
+import {
+  GoogleGenerativeAI,
+  HarmBlockThreshold,
+  HarmCategory,
+} from "@google/generative-ai";
 
-const JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    medicineName: { type: ["string", "null"] },
-    activeIngredients: { type: "array", items: { type: "string" } },
-    strength: { type: ["string", "null"] },
-    dosageForm: { type: ["string", "null"] },
-    manufacturer: { type: ["string", "null"] },
-    batchNumber: { type: ["string", "null"] },
-    expiryDate: { type: ["string", "null"] },
-    confidence: { type: "number" },
-    uncertainFields: { type: "array", items: { type: "string" } },
-    imageQuality: { type: "string", enum: ["good", "poor", "unreadable"] },
-    isMedicinePackage: { type: "boolean" },
-  },
-  required: [
-    "medicineName",
-    "activeIngredients",
-    "strength",
-    "dosageForm",
-    "manufacturer",
-    "batchNumber",
-    "expiryDate",
-    "confidence",
-    "uncertainFields",
-    "imageQuality",
-    "isMedicinePackage",
-  ],
-} as const;
+const MODEL = "gemini-2.0-flash";
 
-const INSTRUCTIONS = `You are an OCR assistant for medicine packaging photographs.
+/**
+ * OCR-only system prompt.
+ * The AI must extract ONLY what is visibly printed on the package.
+ * No medical advice, no inference from memory.
+ */
+const PROMPT = `You are an OCR assistant for medicine packaging photographs.
 Read ONLY what is visibly printed on the package, blister or box in the image.
 Rules:
 - Never guess, infer or recall a medicine from memory. If text is not legible, return null.
@@ -47,9 +26,27 @@ Rules:
 - confidence: 0-100, how sure you are the medicine is correctly identified from the image alone.
 - uncertainFields: names of the fields you could not read reliably.
 - imageQuality: "good", "poor" (blurry/partial) or "unreadable".
-- isMedicinePackage: false if the photo is not medicine packaging.`;
+- isMedicinePackage: false if the photo is not medicine packaging.
 
-export type VisionFailure = { kind: "config" | "rate_limit" | "credits" | "upstream" | "parse"; message: string };
+Extract the printed details from this medicine package photo and respond with a JSON object matching this exact shape (no markdown, raw JSON only):
+{
+  "medicineName": string | null,
+  "activeIngredients": string[],
+  "strength": string | null,
+  "dosageForm": string | null,
+  "manufacturer": string | null,
+  "batchNumber": string | null,
+  "expiryDate": string | null,
+  "confidence": number,
+  "uncertainFields": string[],
+  "imageQuality": "good" | "poor" | "unreadable",
+  "isMedicinePackage": boolean
+}`;
+
+export type VisionFailure = {
+  kind: "config" | "rate_limit" | "credits" | "upstream" | "parse";
+  message: string;
+};
 
 export class VisionError extends Error {
   kind: VisionFailure["kind"];
@@ -60,98 +57,109 @@ export class VisionError extends Error {
 }
 
 export async function readMedicineImage(dataUrl: string): Promise<unknown> {
-  const apiKey = process.env["LOVABLE_API_KEY"];
+  const apiKey = process.env["GEMINI_API_KEY"];
   if (!apiKey) {
-    throw new VisionError({ kind: "config", message: "AI analysis is not configured on this server." });
+    throw new VisionError({
+      kind: "config",
+      message: "AI analysis is not configured on this server.",
+    });
   }
 
-  const response = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Lovable-API-Key": apiKey,
-      "X-Lovable-AIG-SDK": "fetch",
-    },
-    body: JSON.stringify({
+  // Strip the data-URL header to get raw base64 + mime type
+  const match = /^data:(image\/[a-z+]+);base64,(.+)$/.exec(dataUrl);
+  if (!match) {
+    throw new VisionError({
+      kind: "parse",
+      message: "The analysis result could not be understood.",
+    });
+  }
+  const [, mimeType, base64Data] = match as unknown as [string, string, string];
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
       model: MODEL,
-      instructions: INSTRUCTIONS,
-      input: [
+      // Keep safety settings permissive so medicine text isn't blocked
+      safetySettings: [
         {
-          role: "user",
-          content: [
-            { type: "input_text", text: "Extract the printed details from this medicine package photo." },
-            { type: "input_image", image_url: dataUrl },
-          ],
+          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
         },
       ],
-      stream: true,
-      reasoning: { effort: "low" },
-      text: {
-        format: { type: "json_schema", name: "medicine_reading", strict: true, schema: JSON_SCHEMA },
+      generationConfig: {
+        // Ask Gemini to return structured JSON directly
+        responseMimeType: "application/json",
       },
-    }),
-  });
+    });
 
-  if (!response.ok || !response.body) {
-    const detail = await response.text().catch(() => "");
-    if (response.status === 429) {
-      throw new VisionError({ kind: "rate_limit", message: "Too many scans right now. Please try again in a moment." });
+    const result = await model.generateContent([
+      PROMPT,
+      { inlineData: { mimeType, data: base64Data } },
+    ]);
+
+    const text = result.response.text();
+
+    if (!text.trim()) {
+      throw new VisionError({
+        kind: "parse",
+        message: "The analysis service returned an empty result.",
+      });
     }
-    if (response.status === 402 || response.status === 403) {
+
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      throw new VisionError({
+        kind: "parse",
+        message: "The analysis result could not be understood.",
+      });
+    }
+  } catch (error) {
+    // Re-throw our own typed errors unchanged
+    if (error instanceof VisionError) throw error;
+
+    const msg =
+      error instanceof Error ? error.message : String(error);
+
+    if (
+      msg.includes("429") ||
+      /quota|rate.?limit/i.test(msg)
+    ) {
+      throw new VisionError({
+        kind: "rate_limit",
+        message: "Too many scans right now. Please try again in a moment.",
+      });
+    }
+    if (msg.includes("401") || /api.?key|invalid.?key/i.test(msg)) {
+      throw new VisionError({
+        kind: "config",
+        message:
+          "The AI analysis key is invalid. Please check the server configuration.",
+      });
+    }
+    if (msg.includes("403")) {
       throw new VisionError({
         kind: "credits",
         message: "AI analysis is temporarily unavailable for this workspace.",
       });
     }
-    if (response.status === 401) {
-      throw new VisionError({
-        kind: "config",
-        message: "The AI analysis key is invalid. Please check the server configuration.",
-      });
-    }
-    console.error("Vision gateway error", response.status, detail.slice(0, 500));
-    throw new VisionError({ kind: "upstream", message: "The analysis service could not read the image." });
-  }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let text = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice(5).trim();
-      if (!payload || payload === "[DONE]") continue;
-      try {
-        const event = JSON.parse(payload) as {
-          type?: string;
-          delta?: string;
-          response?: { output_text?: string };
-        };
-        if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
-          text += event.delta;
-        } else if (event.type === "response.completed" && event.response?.output_text) {
-          if (!text) text = event.response.output_text;
-        }
-      } catch {
-        /* ignore keepalive / partial frames */
-      }
-    }
-  }
-
-  if (!text.trim()) {
-    throw new VisionError({ kind: "parse", message: "The analysis service returned an empty result." });
-  }
-
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    throw new VisionError({ kind: "parse", message: "The analysis result could not be understood." });
+    console.error("Vision error", msg.slice(0, 500));
+    throw new VisionError({
+      kind: "upstream",
+      message: "The analysis service could not read the image.",
+    });
   }
 }
