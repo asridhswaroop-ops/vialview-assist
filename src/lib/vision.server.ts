@@ -1,15 +1,54 @@
 /**
- * Server-only Gemini vision call.
+ * Server-only Gemini vision call — uses @google/genai (unified SDK).
  * Never imported by client code — the API key stays on the server.
  */
 
 import {
-  GoogleGenerativeAI,
+  GoogleGenAI,
   HarmBlockThreshold,
   HarmCategory,
-} from "@google/generative-ai";
+  Type,
+} from "@google/genai";
 
-const MODEL = "gemini-2.0-flash";
+const MODEL = "gemini-2.5-flash";
+
+/**
+ * Response schema that exactly mirrors extractionSchema in medicine-analysis.ts.
+ * Passed to Gemini's responseSchema so the model is structurally forced into
+ * the correct shape — equivalent to the old strict json_schema guarantee.
+ */
+const RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    medicineName: { type: Type.STRING, nullable: true },
+    activeIngredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+    strength: { type: Type.STRING, nullable: true },
+    dosageForm: { type: Type.STRING, nullable: true },
+    manufacturer: { type: Type.STRING, nullable: true },
+    batchNumber: { type: Type.STRING, nullable: true },
+    expiryDate: { type: Type.STRING, nullable: true },
+    confidence: { type: Type.NUMBER },
+    uncertainFields: { type: Type.ARRAY, items: { type: Type.STRING } },
+    imageQuality: {
+      type: Type.STRING,
+      enum: ["good", "poor", "unreadable"],
+    },
+    isMedicinePackage: { type: Type.BOOLEAN },
+  },
+  required: [
+    "medicineName",
+    "activeIngredients",
+    "strength",
+    "dosageForm",
+    "manufacturer",
+    "batchNumber",
+    "expiryDate",
+    "confidence",
+    "uncertainFields",
+    "imageQuality",
+    "isMedicinePackage",
+  ],
+};
 
 /**
  * OCR-only system prompt.
@@ -28,20 +67,7 @@ Rules:
 - imageQuality: "good", "poor" (blurry/partial) or "unreadable".
 - isMedicinePackage: false if the photo is not medicine packaging.
 
-Extract the printed details from this medicine package photo and respond with a JSON object matching this exact shape (no markdown, raw JSON only):
-{
-  "medicineName": string | null,
-  "activeIngredients": string[],
-  "strength": string | null,
-  "dosageForm": string | null,
-  "manufacturer": string | null,
-  "batchNumber": string | null,
-  "expiryDate": string | null,
-  "confidence": number,
-  "uncertainFields": string[],
-  "imageQuality": "good" | "poor" | "unreadable",
-  "isMedicinePackage": boolean
-}`;
+Extract the printed details from this medicine package photo.`;
 
 export type VisionFailure = {
   kind: "config" | "rate_limit" | "credits" | "upstream" | "parse";
@@ -65,7 +91,7 @@ export async function readMedicineImage(dataUrl: string): Promise<unknown> {
     });
   }
 
-  // Strip the data-URL header to get raw base64 + mime type
+  // Strip the data-URL header to get raw base64 + actual mime type
   const match = /^data:(image\/[a-z+]+);base64,(.+)$/.exec(dataUrl);
   if (!match) {
     throw new VisionError({
@@ -76,42 +102,47 @@ export async function readMedicineImage(dataUrl: string): Promise<unknown> {
   const [, mimeType, base64Data] = match as unknown as [string, string, string];
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
+    const ai = new GoogleGenAI({ apiKey });
+
+    const response = await ai.models.generateContent({
       model: MODEL,
-      // Keep safety settings permissive so medicine text isn't blocked
-      safetySettings: [
+      contents: [
         {
-          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-          threshold: HarmBlockThreshold.BLOCK_NONE,
+          role: "user",
+          parts: [
+            { text: PROMPT },
+            { inlineData: { mimeType, data: base64Data } },
+          ],
         },
       ],
-      generationConfig: {
-        // Ask Gemini to return structured JSON directly
+      config: {
         responseMimeType: "application/json",
+        responseSchema: RESPONSE_SCHEMA,
+        // Keep safety thresholds permissive so medicine text is never blocked
+        safetySettings: [
+          {
+            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+        ],
       },
     });
 
-    const result = await model.generateContent([
-      PROMPT,
-      { inlineData: { mimeType, data: base64Data } },
-    ]);
+    const text = response.text;
 
-    const text = result.response.text();
-
-    if (!text.trim()) {
+    if (!text || !text.trim()) {
       throw new VisionError({
         kind: "parse",
         message: "The analysis service returned an empty result.",
@@ -130,13 +161,9 @@ export async function readMedicineImage(dataUrl: string): Promise<unknown> {
     // Re-throw our own typed errors unchanged
     if (error instanceof VisionError) throw error;
 
-    const msg =
-      error instanceof Error ? error.message : String(error);
+    const msg = error instanceof Error ? error.message : String(error);
 
-    if (
-      msg.includes("429") ||
-      /quota|rate.?limit/i.test(msg)
-    ) {
+    if (msg.includes("429") || /quota|rate.?limit/i.test(msg)) {
       throw new VisionError({
         kind: "rate_limit",
         message: "Too many scans right now. Please try again in a moment.",
@@ -163,3 +190,4 @@ export async function readMedicineImage(dataUrl: string): Promise<unknown> {
     });
   }
 }
+
